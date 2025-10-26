@@ -13,26 +13,30 @@ app.add_middleware(
 
 @app.get("/deals")
 def get_deals():
-    buff_url = "https://buff.163.com/api/market/goods/sell_order?game=csgo&page_num=1"
-    buff = requests.get(buff_url).json()
-    skinport_url = "https://api.skinport.com/v1/items?app_id=730&currency=USD"
-    skinport = requests.get(skinport_url).json()
+    try:
+        # Fetch Skinport data (official API)
+        skinport_url = "https://api.skinport.com/v1/items?app_id=730&currency=USD"
+        sp_resp = requests.get(skinport_url, timeout=10)
+        if sp_resp.status_code != 200:
+            return {"error": "Failed to fetch Skinport data"}
+        skinport = sp_resp.json()
 
-    deals = []
-    for item in buff["data"]["items"]:
-        name = item["market_hash_name"]
-        buff_price = float(item["sell_min_price"])
-
-        sp_item = next((x for x in skinport if x["market_hash_name"] == name), None)
-        if sp_item:
-            skinport_price = float(sp_item["min_price"])
-            if skinport_price > 0 and buff_price < skinport_price * 0.9:
+        # Example: find items with discount > 10% vs suggested price
+        deals = []
+        for item in skinport:
+            min_price = float(item.get("min_price") or 0)
+            suggested = float(item.get("suggested_price") or 0)
+            if suggested > 0 and min_price < suggested * 0.9:
                 deals.append({
-                    "name": name,
-                    "buff_price": buff_price,
-                    "skinport_price": skinport_price,
-                    "discount": round((1 - buff_price / skinport_price) * 100, 2)
+                    "name": item["market_hash_name"],
+                    "min_price": min_price,
+                    "suggested_price": suggested,
+                    "discount": round((1 - min_price / suggested) * 100, 2)
                 })
 
-    deals = sorted(deals, key=lambda x: x["discount"], reverse=True)
-    return {"deals": deals[:50]}
+        deals = sorted(deals, key=lambda x: x["discount"], reverse=True)
+        return {"deals": deals[:50]}
+
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()}
